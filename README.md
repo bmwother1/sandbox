@@ -36,6 +36,38 @@ That is the only number it optimizes. Everything else feeds it.
 When it is not your turn, it flips to preview: it simulates the intervening picks
 and reports who is actually likely to reach you, and how often.
 
+## On a phone
+
+The layout is phone-first: a sticky pick bar, then a bottom tab bar — **Pick /
+Board / Charts / Team** — so the recommendation is above the fold and every
+control is a real tap target.
+
+## Charts
+
+- **Positional value curve** — small multiples, one panel per position, showing
+  projected points against rank among the players *still available*. All four
+  share one scale, so the height of a curve above its replacement line is
+  directly comparable across positions: that gap is VORP, drawn.
+- **Draft grid** — the full board, one column per team with snake order
+  resolved, cells tinted by position.
+- **Pick tempo** — the last 24 picks as coloured blocks; a run is a block of one
+  colour.
+- **Starters vs. league average** — diverging bars per starting slot; unfilled
+  slots count at waiver level so the comparison is defined from pick one.
+
+The categorical palette is validated for colour-vision deficiency and contrast
+in both themes (OKLab ΔE on all pairs, ≥3:1 against the surface).
+
+## Saving
+
+Three layers, so a draft is never lost:
+
+1. **This browser** — every pick writes to local storage immediately.
+2. **The page's own store** — when available it syncs server-side, so a draft
+   survives closing the tab and follows you between phone and laptop.
+3. **Backup** — download a JSON file, or copy the backup text and paste it back
+   into any browser to restore.
+
 ## Using it during a draft
 
 1. **Settings** — teams, your slot, rounds, scoring, starting lineup. Four league
