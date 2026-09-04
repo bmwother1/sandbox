@@ -987,6 +987,23 @@ function survives(p, target, cur){
   return Math.max(0, Math.min(1, (1-then)/(1-now)));
 }
 
+/* Expected value of the best player at `pos` still on the board at `target`.
+   Walks the position in value order: the best survivor is the first one that
+   lasts, so each player contributes his value times the chance everyone above
+   him is gone and he is not. Deterministic — no sampling, no noise. */
+function expectedBestAt(pos, avail, target, cur){
+  if(target==null) return WAIVER[pos]||0;
+  const list=avail.filter(p=>p.pos===pos).sort((a,b)=>b.value-a.value);
+  let acc=0, none=1;
+  for(const p of list){
+    const sv=survives(p,target,cur);
+    acc += none*sv*p.value;
+    none *= (1-sv);
+    if(none<0.002) break;
+  }
+  return acc + none*(WAIVER[pos]||0);
+}
+
 /* ---------------------------------------------------------------------
    8. OPPONENT MODEL + MONTE CARLO ROLLOUT
    --------------------------------------------------------------------- */
@@ -1137,20 +1154,50 @@ function runEngine(D){
   const availSorted = D.avail.slice().sort((a,b)=>a.adp-b.adp);
   const SEED = 0x5EED;
 
+  /* Ranking is deterministic. A rollout mean over ~50 sims carries a standard
+     error of several points while real gaps between candidates are often ~2,
+     so sorting by it was sorting by noise. These two terms are exact given the
+     survival model, and they are the actual decision:
+       adds  — what he adds to the starting lineup right now
+       waiting — what you lose by not taking him: his value minus the value of
+                 the best player at his position expected to survive to your
+                 next pick. Large when he will be gone, ~0 when he will not. */
+  const EB={}, margLater={};
+  POSES.forEach(pos=>{
+    EB[pos]=expectedBestAt(pos, D.avail, D.myNext2, D.cur);
+    // What the best survivor at this position would add to the lineup LATER.
+    // Measuring the wait in lineup terms rather than raw points makes it
+    // self-cancelling once the slot is filled — otherwise a steep drop-off at
+    // an already-covered position keeps screaming for a second one.
+    const ghost={pos, value:EB[pos], proj:EB[pos]};
+    myRoster.push(ghost); margLater[pos]=lineupPoints(myRoster)-baseLine; myRoster.pop();
+  });
+
+  /* A backup at a position whose starting slots are already covered is a
+     late-round luxury, not a round-8 pick. Discount hard early, relax as the
+     draft runs out — otherwise a second QB outranks a starting flex. */
+  const roundNow = Math.floor((D.myNext ?? D.cur)/S.teams)+1;
+  const lateness = Math.min(1, roundNow/Math.max(1,S.rounds));
+  const capacityOf = pos => {
+    const flexOK = ['RB','WR','TE'].includes(pos);
+    return S.slots[pos]
+         + (pos==='QB' ? (S.slots.SFLEX||0) : 0)
+         + (flexOK ? (S.slots.FLEX||0)+(S.slots.SFLEX||0) : 0);
+  };
+
   const results = shortlist.map(s=>{
-    let sum=0, sum2=0;
-    for(let k=0;k<sims;k++){
-      // Common random numbers: every candidate faces the identical draft rooms.
-      const v = rollout(availSorted, D.rosters, D.cur, s.p, SEED + k*7919);
-      sum+=v; sum2+=v*v;
-    }
-    const mean=sum/sims;
-    return {...s, ev:mean, evSd:Math.sqrt(Math.max(0,sum2/sims-mean*mean)),
+    const pos=s.p.pos;
+    const wait = s.marg - (margLater[pos]||0);
+    let score = s.marg + 0.9*Math.max(0,wait) + 0.15*s.vorp;
+    if(pos!=='K' && pos!=='DST' && c[pos] >= capacityOf(pos)) score *= (0.15+0.65*lateness);
+    return {...s,
+            wait,
+            score,
             surv: survives(s.p, D.myNext2, D.cur),
             tier: tiers[s.p.pos].map.get(s.p.id)};
-  }).sort((a,b)=>b.ev-a.ev);
+  }).sort((a,b)=>b.score-a.score);
 
-  return {results, rep, need, tiers, sims, baseLine};
+  return {results, rep, need, tiers, sims, baseLine, EB};
 }
 
 /* Not my turn: simulate forward and see who actually reaches me. */
@@ -1237,7 +1284,8 @@ function explain(r, D, E){
     else if(r.surv>0.62) bits.push(`he is <b>${pct(r.surv)}</b> to still be there, so this is a real choice rather than a panic`);
   }
 
-  // 4. price
+  // 4. what waiting actually costs
+  if(r.wait>10) bits.push(`waiting for the next ${pos} costs you about <b>${Math.round(r.wait)}</b> lineup points`);
   const gap = r.p.adp - (D.cur+1);
   if(gap >= Math.max(8, S.teams*0.7)) bits.push(`and you are getting him <b>${Math.round(gap)} picks</b> ahead of his going rate`);
 
@@ -1304,11 +1352,11 @@ function renderCall(D,E){
       </div>`;
     return;
   }
-  const edge=second?r.ev-second.ev:0;
-  const conf=!second?'only option':edge>6?'clear call':edge>2.5?'solid edge':edge>0.9?'slight edge':'coin flip';
+  const edge=second?r.score-second.score:0;
+  const conf=!second?'only option':edge>25?'clear call':edge>10?'solid edge':edge>3?'slight edge':'close call';
   el.innerHTML=`
     <div class="ctop"><span class="lbl">Take him</span>
-      <span class="conf">${conf}${second?` · +${edge.toFixed(1)} over ${esc(last(second.p.name))}`:''}</span></div>
+      <span class="conf">${conf}${second?` · ahead of ${esc(last(second.p.name))}`:''}</span></div>
     <div class="cbd">
       <div>
         <div class="cname">${esc(r.p.name)}</div>
@@ -1320,7 +1368,7 @@ function renderCall(D,E){
       </div>
       <div class="cside">
         <div class="metrics">
-          <div class="metric"><div class="v">${r.ev.toFixed(0)}</div><div class="l">Lineup EV</div></div>
+          <div class="metric"><div class="v">+${Math.max(0,r.marg).toFixed(0)}</div><div class="l">Adds to lineup</div></div>
           <div class="metric"><div class="v">${r.vorp>0?'+':''}${r.vorp.toFixed(0)}</div><div class="l">VORP</div></div>
           <div class="metric"><div class="v">${D.myNext2!=null?pct(r.surv):'—'}</div><div class="l">Lasts to ${D.myNext2!=null?label(D.myNext2):'—'}</div></div>
         </div>
@@ -1348,15 +1396,14 @@ function renderCandidates(D,E){
     return;
   }
   $('candHd').textContent='Ranked candidates';
-  $('candHint').innerHTML=`${E.sims} rollouts each<br>common random draws`;
-  const top=E.results[0].ev;
-  t.innerHTML=`<thead><tr><th>Player</th><th>Lineup EV</th><th>Cost of passing</th><th>VORP</th>
+  $('candHint').innerHTML='ranked by lineup gain + cost of waiting';
+  t.innerHTML=`<thead><tr><th>Player</th><th>Adds now</th><th>Cost of waiting</th><th>VORP</th>
     <th>Lasts to ${D.myNext2!=null?label(D.myNext2):'—'}</th><th></th></tr></thead><tbody>`+
     E.results.slice(0,10).map((r,i)=>`<tr>
       <td><div class="pname"><span class="rk">${i+1}</span>${chip(r.p)}<span class="n">${esc(r.p.name)}</span>
         <span class="team">${esc(r.p.team)}</span></div></td>
-      <td class="num">${r.ev.toFixed(0)}</td>
-      <td class="num" style="color:${i===0?'var(--muted)':'var(--crit)'}">${i===0?'—':'−'+(top-r.ev).toFixed(1)}</td>
+      <td class="num">+${Math.max(0,r.marg).toFixed(0)}</td>
+      <td class="num" style="color:${r.wait>12?'var(--crit)':'var(--muted)'}">${r.wait>0?'−'+r.wait.toFixed(0):'—'}</td>
       <td class="num">${r.vorp>0?'+':''}${r.vorp.toFixed(0)}</td>
       <td><div style="display:flex;align-items:center;gap:7px;justify-content:flex-end">
         <span class="meter" style="width:40px"><i style="width:${Math.round(r.surv*100)}%;background:${r.surv<0.25?'var(--crit)':r.surv>0.6?'var(--go)':'var(--warn)'}"></i></span>
