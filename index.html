@@ -243,6 +243,19 @@ button{cursor:pointer}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:6px 0;margin:0}
 .working{color:var(--faint);font-size:11.5px}
 
+/* ===== roster needs ===== */
+.needs{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:5px;margin-bottom:9px}
+.nd{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 7px;border-radius:5px;
+  border:1px solid var(--line);background:var(--surface-2)}
+.nd b{font-size:16px;font-weight:700;line-height:1}
+.nd .of{font-size:11px;color:var(--faint);margin-left:-3px}
+.nd .st{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;color:var(--faint)}
+.nd.need{border-color:var(--crit)} .nd.need .st{color:var(--crit)}
+.nd.ok{border-color:var(--go)} .nd.ok .st{color:var(--go)}
+.nd.cap{border-color:var(--line-strong);background:var(--surface-3)}
+.nd b,.nd .of{display:inline}
+.ndfoot{font-size:11.5px;color:var(--faint);margin:0 0 10px;line-height:1.45}
+
 /* ===== charts ===== */
 .chart{padding:13px 13px 6px}
 .chart svg{display:block;width:100%;height:auto;overflow:visible}
@@ -1390,9 +1403,27 @@ function renderAlerts(D,E){
   }
   if(DEMO) A.unshift(['warn','Sample',`These six picks are a sample so the engine has something to chew on. <b><a href="#" id="clearDemo" style="color:inherit">Clear the board</a></b> when your draft starts.`]);
   if(!A.length) A.push(['go','Clear','Nothing unusual on the board. The ranked list is the whole story.']);
-  $('alerts').innerHTML=A.map(([k,t,m])=>`<div class="alert ${k}"><span class="k">${t}</span><span>${m}</span></div>`).join('');
+  $('alerts').innerHTML=needsStrip(D)+A.map(([k,t,m])=>`<div class="alert ${k}"><span class="k">${t}</span><span>${m}</span></div>`).join('');
   const cd=$('clearDemo');
   if(cd) cd.onclick=e=>{e.preventDefault();DEMO=false;PICKS=[];save();render();};
+}
+
+/* Starters filled vs. required, plus the hard cap the engine will not exceed.
+   Answers "am I about to end up with five quarterbacks" without reading a table. */
+function needsStrip(D){
+  const c=posCount(D.rosters[myIdx()]);
+  const flexPool=c.RB+c.WR+c.TE;
+  const flexNeed=S.slots.FLEX+S.slots.SFLEX;
+  const cells=POSES.filter(pos=>S.slots[pos]>0||['RB','WR','TE'].includes(pos)).map(pos=>{
+    const need=S.slots[pos], have=c[pos], full=have>=need, cap=have>=MAX_AT_POS[pos];
+    const state=cap?'cap':full?'ok':'need';
+    return `<div class="nd ${state}"><span class="pos ${pos}">${pos}</span>
+      <b>${have}</b><span class="of">/${need}</span>
+      <span class="st">${cap?'at cap':full?'set':'need '+(need-have)}</span></div>`;
+  }).join('');
+  const flexTxt=flexNeed?`<p class="ndfoot">Flex spots: <b>${Math.max(0,Math.min(flexNeed,flexPool-(S.slots.RB+S.slots.WR+S.slots.TE)))}</b> of ${flexNeed} covered · caps: max ${MAX_AT_POS.QB} QB, ${MAX_AT_POS.TE} TE, ${MAX_AT_POS.K} K, ${MAX_AT_POS.DST} D/ST — the engine will never suggest past these.</p>`
+    :`<p class="ndfoot">Caps: max ${MAX_AT_POS.QB} QB, ${MAX_AT_POS.TE} TE, ${MAX_AT_POS.K} K, ${MAX_AT_POS.DST} D/ST — the engine will never suggest past these.</p>`;
+  return `<div class="needs">${cells}</div>${flexTxt}`;
 }
 
 function renderLog(D){
