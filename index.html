@@ -695,6 +695,30 @@ Wil Lutz|K|DEN
 Jason Sanders|K|MIA
 Younghoe Koo|K|ATL
 Jake Elliott|K|PHI
+Cairo Santos|K|CHI
+Jason Myers|K|SEA
+Matt Gay|K|WAS
+Joey Slye|K|NE
+Chase McLaughlin|K|TB
+Daniel Carlson|K|LV
+Blake Grupe|K|NO
+Tyler Loop|K|BAL
+Andres Borregales|K|NYG
+Spencer Shrader|K|IND
+Cam Little|K|JAX
+Michael Badgley|K|CLE
+Commanders D/ST|DST|WAS
+49ers D/ST|DST|SF
+Chiefs D/ST|DST|KC
+Jets D/ST|DST|NYJ
+Bengals D/ST|DST|CIN
+Buccaneers D/ST|DST|TB
+Rams D/ST|DST|LAR
+Browns D/ST|DST|CLE
+Colts D/ST|DST|IND
+Cowboys D/ST|DST|DAL
+Falcons D/ST|DST|ATL
+Patriots D/ST|DST|NE
 `.trim().split('\n');
 
 /* ---------------------------------------------------------------------
@@ -741,7 +765,21 @@ const DEFAULT_SETTINGS = {
   ppr:1, tePrem:0, passTD:4,
   slots:{QB:1,RB:2,WR:2,TE:1,FLEX:1,SFLEX:0,K:1,DST:1}
 };
-const MAX_AT_POS = {QB:2,RB:6,WR:7,TE:2,K:1,DST:1};
+/* Caps derive from the league's own lineup, not fixed numbers: a 2-QB or
+   2-K league must be able to fill its starters, and a 3-TE league must be
+   able to carry them. Always at least enough to fill every starting slot. */
+let MAX_AT_POS = {QB:2,RB:6,WR:7,TE:2,K:1,DST:1};
+function recomputeCaps(){
+  const sl=S.slots, sf=sl.SFLEX||0, fx=sl.FLEX||0;
+  MAX_AT_POS={
+    QB: Math.max(2, sl.QB+sf+1),
+    RB: Math.max(6, sl.RB+fx+sf+4),
+    WR: Math.max(6, sl.WR+fx+sf+4),
+    TE: Math.max(2, sl.TE+1),
+    K:  Math.max(1, sl.K),
+    DST:Math.max(1, sl.DST)
+  };
+}
 
 let LEAGUES = [];
 let CUR = 0;
@@ -772,6 +810,7 @@ function freshPool(){ POOL = parseBoard(BASE_BOARD); POOL_SOURCE='baseline'; ran
 
 /* Assign projections from positional rank + scoring, plus per-player risk sd. */
 function rankPool(){
+  recomputeCaps();
   POOL.sort((a,b)=>a.adp-b.adp);
   const seen = {};
   POOL.forEach(p=>{
@@ -982,14 +1021,15 @@ function oppPick(avail, roster, roundsLeft, rnd){
 }
 
 /* My pick inside a rollout: whatever adds most to the final lineup. */
-function myPick(avail, roster, roundsLeft){
+function myPick(avail, roster, roundsLeft, relax){
   const c = posCount(roster);
   const base = lineupPoints(roster);
-  let bestI=0, bestV=-1e9, scanned=0;
+  let bestI=-1, bestV=-1e9, scanned=0;
   for(let i=0;i<avail.length && scanned<14;i++){
     const p=avail[i];
-    if(c[p.pos] >= MAX_AT_POS[p.pos]) continue;
-    if((p.pos==='K'||p.pos==='DST') && roundsLeft>2) continue;
+    if((p.pos==='K'||p.pos==='DST') && c[p.pos] >= MAX_AT_POS[p.pos]) continue;
+    if(!relax && c[p.pos] >= MAX_AT_POS[p.pos]) continue;
+    if(!relax && (p.pos==='K'||p.pos==='DST') && roundsLeft>2) continue;
     if((p.pos!=='K'&&p.pos!=='DST') && roundsLeft<=2 && (c.K<S.slots.K||c.DST<S.slots.DST)){
       // late rounds must leave room for the mandatory K/DST
       if(roundsLeft <= (S.slots.K-c.K)+(S.slots.DST-c.DST)) continue;
@@ -1000,6 +1040,7 @@ function myPick(avail, roster, roundsLeft){
     roster.pop();
     if(v > bestV){ bestV=v; bestI=i; }
   }
+  if(bestI<0) return relax ? 0 : myPick(avail, roster, roundsLeft, true);
   return bestI;
 }
 
@@ -1065,13 +1106,23 @@ function runEngine(D){
 
   // Candidate shortlist: best marginal-lineup adds, plus best available at
   // every position we still have to start.
-  const scored = D.avail.map(p=>{
-    if(c[p.pos] >= MAX_AT_POS[p.pos]) return null;
-    const roundsLeft = S.rounds - Math.floor((D.myNext ?? D.cur)/S.teams);
-    if((p.pos==='K'||p.pos==='DST') && roundsLeft>2) return null;
+  const roundsLeft = S.rounds - Math.floor((D.myNext ?? D.cur)/S.teams);
+  /* Constraints are relaxed in stages so a candidate list is never empty:
+     normal rules, then allow K/DST early, then ignore the caps entirely.
+     An empty shortlist means no recommendation at all, which is worse than
+     any of these. */
+  const build = (useCaps, holdKD) => D.avail.map(p=>{
+    // K and D/ST are capped at what the lineup actually starts, always:
+    // relaxing the others must never turn into a pile of spare kickers.
+    if((p.pos==='K'||p.pos==='DST') && c[p.pos] >= MAX_AT_POS[p.pos]) return null;
+    if(useCaps && c[p.pos] >= MAX_AT_POS[p.pos]) return null;
+    if(holdKD && (p.pos==='K'||p.pos==='DST') && roundsLeft>2) return null;
     myRoster.push(p); const marg = lineupPoints(myRoster)-baseLine; myRoster.pop();
     return {p, vorp:p.value-rep[p.pos], marg, heur:marg + 0.55*(p.value-rep[p.pos])};
   }).filter(Boolean).sort((a,b)=>b.heur-a.heur);
+  let scored = build(true,true);
+  if(!scored.length) scored = build(true,false);
+  if(!scored.length) scored = build(false,false);
 
   const shortlist=[]; const seen=new Set();
   for(const s of scored){ if(shortlist.length>=10) break; shortlist.push(s); seen.add(s.p.id); }
