@@ -690,6 +690,29 @@ DeMario Douglas|WR|NE
 Andrei Iosivas|WR|CIN
 Michael Wilson|WR|ARI
 Cedric Tillman|WR|CLE
+Jaylen Warren|RB|PIT
+Tyjae Spears|RB|TEN
+Tyler Allgeier|RB|ATL
+Jerome Ford|RB|CLE
+Sean Tucker|RB|TB
+Kimani Vidal|RB|LAC
+Emanuel Wilson|RB|GB
+Zamir White|RB|LV
+Pat Freiermuth|TE|PIT
+Chig Okonkwo|TE|TEN
+Cade Otton|TE|TB
+Juwan Johnson|TE|NO
+Dalton Schultz|TE|HOU
+Theo Johnson|TE|NYG
+Elijah Arroyo|TE|SEA
+Tank Dell|WR|HOU|0.6|IR
+Jordyn Tyson|WR|NO|0.55|IR · out 4+
+Jalen Coker|WR|CAR
+Demarcus Robinson|WR|SF
+Tua Tagovailoa|QB|MIA
+Bryce Young|QB|CAR
+Geno Smith|QB|LV
+Sam Darnold|QB|SEA
 Broncos D/ST|DST|DEN
 Eagles D/ST|DST|PHI
 Ravens D/ST|DST|BAL
@@ -1862,11 +1885,35 @@ function searchPlayers(qs){
 }
 function showResults(){
   const box=$('results');
-  if(!matches.length){hideResults();return;}
+  const typed=$('q').value.trim();
+  if(!matches.length){
+    // No board is complete. Rather than dead-end, let the pick be recorded.
+    if(typed.length<3){ hideResults(); return; }
+    box.hidden=false;
+    box.innerHTML=`<div style="padding:10px 11px;border-bottom:1px solid var(--line)">
+        <div style="font-size:12.5px;color:var(--muted);margin-bottom:7px">
+          <b style="color:var(--text)">${esc(typed)}</b> isn't on the board. Add him as:</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          ${POSES.map(x=>`<button type="button" class="tab" data-addpos="${x}">${x}</button>`).join('')}
+        </div></div>
+      <button type="button" data-unknown="1"><span class="nm" style="color:var(--muted)">
+        Just record the pick — someone else took him</span></button>`;
+    return;
+  }
   box.hidden=false;
   box.innerHTML=matches.map((p,i)=>`<button type="button" data-draft="${p.id}" class="${i===selIdx?'sel':''}">
     ${chip(p)}<span class="nm">${esc(p.name)}</span><span class="team">${esc(p.team)}</span>
-    <span class="mono" style="font-size:11.5px;color:var(--muted)">ADP ${p.adp.toFixed(0)}</span></button>`).join('');
+    <span class="mono" style="font-size:11.5px;color:var(--muted)">${p.bye?'bye '+p.bye+' · ':''}ADP ${p.adp.toFixed(0)}</span></button>`).join('');
+}
+
+/* Add a player the board never had, at the value the current pick implies. */
+function addCustom(name, pos){
+  const D=derive();
+  const id='x'+Date.now().toString(36);
+  const adp=Math.max(1, D.cur+1);
+  POOL.push({id, name, pos, team:'', bye:null, adp, adj:1, note:'added by you'});
+  rankPool();
+  makePick(id);
 }
 function hideResults(){ $('results').hidden=true; matches=[]; selIdx=0; }
 
@@ -1874,10 +1921,17 @@ $('q').addEventListener('input',e=>{matches=searchPlayers(e.target.value);selIdx
 $('q').addEventListener('keydown',e=>{
   if(e.key==='ArrowDown'){e.preventDefault();selIdx=Math.min(selIdx+1,matches.length-1);showResults();}
   else if(e.key==='ArrowUp'){e.preventDefault();selIdx=Math.max(selIdx-1,0);showResults();}
-  else if(e.key==='Enter'){e.preventDefault();if(matches[selIdx])makePick(matches[selIdx].id);}
+  else if(e.key==='Enter'){e.preventDefault();
+    if(matches[selIdx]) makePick(matches[selIdx].id);
+    else if(e.target.value.trim().length>=3) showResults();   // reveal the add options
+  }
   else if(e.key==='Escape') hideResults();
 });
 document.addEventListener('click',e=>{
+  const ap=e.target.closest('[data-addpos]');
+  if(ap){ addCustom($('q').value.trim(), ap.dataset.addpos); return; }
+  const uk=e.target.closest('[data-unknown]');
+  if(uk){ makePick(null); return; }
   const d=e.target.closest('[data-draft]'); if(d){makePick(d.dataset.draft);return;}
   const g=e.target.closest('[data-gone]'); if(g){makePick(g.dataset.gone);return;}
   const f=e.target.closest('[data-filter]'); if(f){boardFilter=f.dataset.filter;render();return;}
