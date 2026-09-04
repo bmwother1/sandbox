@@ -54,7 +54,7 @@ button{cursor:pointer}
 .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
 
 .wrap{max-width:1400px;margin:0 auto;padding:0 14px 30px}
-@media (max-width:900px){.wrap{padding:0 10px calc(78px + env(safe-area-inset-bottom))}}
+@media (max-width:900px){.wrap{padding:0 10px 40px}}
 
 /* ===== masthead ===== */
 .mast{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 0 10px}
@@ -135,22 +135,19 @@ button{cursor:pointer}
 .phd .hint{margin-left:auto;font-size:11.5px;color:var(--faint);text-align:right}
 .pbd{padding:13px}
 
-/* mobile view switching */
-.tabbar{display:none}
+/* Jump links. Deliberately in-flow and never position:fixed, and no section is
+   ever display:none — everything on this page is reachable by scrolling alone. */
+.tabbar{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.tabbar button{background:var(--surface);border:1px solid var(--line-strong);border-radius:100px;
+  padding:8px 15px;font-size:13px;font-weight:600;color:var(--muted);min-height:42px}
+.tabbar button:hover{border-color:var(--gold-solid);color:var(--text)}
+.tabbar .g{display:none}
 @media (max-width:900px){
-  .view{display:none}
-  body[data-view="pick"]   .view[data-v="pick"],
-  body[data-view="board"]  .view[data-v="board"],
-  body[data-view="charts"] .view[data-v="charts"],
-  body[data-view="team"]   .view[data-v="team"]{display:block}
-  .tabbar{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;left:0;right:0;bottom:0;z-index:70;
-    background:var(--surface);border-top:1px solid var(--line-strong);
-    padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -6px 18px -12px rgba(0,0,0,.5)}
-  .tabbar button{background:none;border:0;padding:9px 4px 10px;display:flex;flex-direction:column;
-    align-items:center;gap:3px;font-size:10.5px;font-weight:600;letter-spacing:.06em;
-    text-transform:uppercase;color:var(--faint);min-height:56px}
-  .tabbar button[aria-pressed="true"]{color:var(--gold-ink);box-shadow:inset 0 2px 0 var(--gold-solid)}
-  .tabbar .g{font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;line-height:1}
+  .tabbar{position:sticky;top:0;z-index:39;background:var(--bg);padding:7px 0 8px;margin:0 0 10px;
+    flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .tabbar::-webkit-scrollbar{display:none}
+  .tabbar button{flex:none;padding:8px 14px}
+  .clockbar{top:57px}
 }
 
 /* ===== the call ===== */
@@ -319,6 +316,13 @@ dialog::backdrop{background:rgba(8,16,18,.62)}
     <span class="sub" id="leagueSub"></span>
   </header>
 
+  <nav class="tabbar" id="tabbar">
+    <button data-goto="pick">The call</button>
+    <button data-goto="board">Board</button>
+    <button data-goto="team">My team</button>
+    <button data-goto="charts">Charts</button>
+  </nav>
+
   <div class="clockbar" id="clockbar">
     <div class="crow">
       <div class="onclock">
@@ -405,13 +409,6 @@ dialog::backdrop{background:rgba(8,16,18,.62)}
 
   <p class="foot" id="foot"></p>
 </div>
-
-<nav class="tabbar" id="tabbar">
-  <button data-view="pick"   aria-pressed="true"><span class="g">1.01</span>Pick</button>
-  <button data-view="board"  aria-pressed="false"><span class="g">☰</span>Board</button>
-  <button data-view="charts" aria-pressed="false"><span class="g">◪</span>Charts</button>
-  <button data-view="team"   aria-pressed="false"><span class="g">★</span>Team</button>
-</nav>
 
 <dialog id="dlg">
   <form method="dialog">
@@ -1196,7 +1193,7 @@ const last = n => { const p=n.split(' '); return p.length>1?p.slice(1).join(' ')
 
 function renderClock(D){
   const bar=$('clockbar');
-  const tb=document.querySelector('.tabbar [data-view="pick"] .g');
+  const tb=null;
   if(D.done){
     $('pickNo').textContent='DONE'; $('whoUp').textContent='Draft complete'; $('whoUp').className='who';
     bar.classList.remove('mine'); $('turnMeter').innerHTML=''; if(tb) tb.textContent='—'; return;
@@ -1603,8 +1600,28 @@ function renderFoot(){
        within that ordering and your scoring settings.`;
 }
 
+function oops(where,err){
+  try{
+    console.error(where,err);
+    let el=$('errbar');
+    if(!el){
+      el=document.createElement('div'); el.id='errbar';
+      el.style.cssText='position:fixed;left:8px;right:8px;bottom:12px;z-index:99;padding:10px 12px;'+
+        'border-radius:6px;background:var(--crit-bg);border:1px solid var(--crit);color:var(--crit);'+
+        'font-size:13px;line-height:1.35;box-shadow:var(--shadow)';
+      document.body.appendChild(el);
+    }
+    el.textContent='Something failed in '+where+': '+(err&&err.message||err)+' — your picks are still saved on this device. Tap to dismiss.';
+    el.onclick=()=>el.remove();
+  }catch(_){}
+}
+window.addEventListener('error',e=>oops('the page',e.error||e.message));
+
 let renderToken=0;
 function render(){
+  try{ renderInner(); }catch(err){ oops('render',err); }
+}
+function renderInner(){
   const D=derive();
   renderClock(D); renderLog(D); renderRoster(D); renderLeagueChips();
   drawGrid(D); drawTempo(D);
@@ -1620,11 +1637,13 @@ function render(){
   $('candHint').innerHTML='<span class="working">simulating…</span>';
   setTimeout(()=>{
     if(token!==renderToken) return;
+    try{
     WAIVER=waiverLevels();
     engineOut = D.isMyTurn ? runEngine(D) : runPreview(D);
     renderCall(D,engineOut); renderCandidates(D,engineOut); renderBoard(D,engineOut);
     renderScarcity(D,engineOut); renderAlerts(D,engineOut);
     drawCurves(D,engineOut); wireCurveTips(D);
+    }catch(err){ oops('the pick engine',err); $('candHint').textContent=''; }
   },0);
   renderBoard(D,null);
 }
@@ -1637,10 +1656,10 @@ function makePick(id){
   DEMO=false;
   if(id && PICKS.some(p=>p.id===id)) return;
   PICKS.push({id,team:D.onClock});
-  save(); render();
+  render(); save();                 // paint first — a save problem must never eat the pick
   $('q').value=''; hideResults();
 }
-function undo(){ DEMO=false; PICKS.pop(); save(); render(); }
+function undo(){ DEMO=false; PICKS.pop(); render(); save(); }
 
 let selIdx=0, matches=[];
 function searchPlayers(qs){
@@ -1674,7 +1693,7 @@ document.addEventListener('click',e=>{
   const g=e.target.closest('[data-gone]'); if(g){makePick(g.dataset.gone);return;}
   const f=e.target.closest('[data-filter]'); if(f){boardFilter=f.dataset.filter;render();return;}
   const l=e.target.closest('[data-league]'); if(l){switchLeague(+l.dataset.league);return;}
-  const v=e.target.closest('[data-view]'); if(v){setView(v.dataset.view);return;}
+  const v=e.target.closest('[data-goto]'); if(v){gotoSection(v.dataset.goto);return;}
   if(!e.target.closest('.entry')) hideResults();
 });
 $('btnUndo').onclick=undo;
@@ -1684,10 +1703,9 @@ document.addEventListener('keydown',e=>{
   if(e.key==='/'){e.preventDefault();$('q').focus();}
   if((e.key==='z'||e.key==='Z')&&(e.metaKey||e.ctrlKey)){e.preventDefault();undo();}
 });
-function setView(v){
-  document.body.dataset.view=v;
-  document.querySelectorAll('.tabbar [data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===v)));
-  window.scrollTo({top:0,behavior:'instant'});
+function gotoSection(v){
+  const el=document.querySelector('.view[data-v="'+v+'"]');
+  if(el) el.scrollIntoView({block:'start',behavior:'smooth'});
 }
 $('btnTheme').onclick=()=>{
   const cur=document.documentElement.getAttribute('data-theme');
@@ -1717,22 +1735,21 @@ function snapshot(){
 }
 function payload(){ snapshot(); return {cur:CUR,leagues:LEAGUES,updatedAt:Date.now(),client:CLIENT}; }
 function save(){
+  try{ saveInner(); }catch(err){ oops('save',err); }
+}
+function saveInner(){
   const body=payload();
   try{ localStorage.setItem('dro.v2',JSON.stringify(body)); }catch(_){}
-  if(!DB){ setSave('local','On device'); return; }
-  setSave('busy','Saving…');
-  clearTimeout(saveTimer);
-  saveTimer=setTimeout(async()=>{
-    try{
-      lastPush=body.updatedAt;
-      await DB.doc('state/main').set(payload());
-      setSave('ok','Saved');
-    }catch(err){ setSave('local','On device only'); }
-  },700);
+  setSave('ok','Saved on device');
 }
-function adopt(body,why){
-  if(!body||!Array.isArray(body.leagues)||!body.leagues.length) return false;
-  LEAGUES=body.leagues; CUR=Math.min(body.cur||0,LEAGUES.length-1);
+/* Snapshots from the store are frozen and shared across deliveries, so every
+   value that lands in app state is deep-cloned first. Writing straight into a
+   frozen array throws under strict mode and takes the whole app down with it. */
+function thaw(v){ try{ return JSON.parse(JSON.stringify(v)); }catch(_){ return null; } }
+function adopt(body){
+  const clone=thaw(body);
+  if(!clone||!Array.isArray(clone.leagues)||!clone.leagues.length) return false;
+  LEAGUES=clone.leagues; CUR=Math.min(clone.cur||0,LEAGUES.length-1);
   loadLeague(CUR); return true;
 }
 function loadLeague(i){
@@ -1746,29 +1763,15 @@ function loadLeague(i){
 }
 function switchLeague(i){ save(); DEMO=false; loadLeague(i); }
 
+/* Only the file-save capability is used. Cross-device sync was pulled out: it was
+   the one path that behaved differently in the published page than in testing,
+   and a draft night is not the time to run an unproven code path. */
 async function initCaps(){
-  if(!(window.claude&&typeof window.claude.use==='function')){ setSave('local','On device'); return; }
-  try{ DB=await window.claude.use('db'); }catch(_){ DB=null; }
+  $('saveNote').textContent='Your draft saves in this browser as you enter picks. Keep a backup below if you want it somewhere safe.';
+  setSave('ok','Saved on device');
+  if(!(window.claude&&typeof window.claude.use==='function')){ $('btnDownload').hidden=true; return; }
   try{ DL=await window.claude.use('downloads'); }catch(_){ DL=null; }
   $('btnDownload').hidden=!DL;
-  $('saveNote').textContent = DB
-    ? 'This draft saves to your browser and to this page’s own store, so it survives closing the tab and follows you between phone and laptop. The backup below is a belt-and-braces copy.'
-    : 'This draft saves in this browser only. Keep a backup copy of the text below if it matters.';
-  if(!DB){ setSave('local','On device'); return; }
-  try{
-    const snap=await DB.doc('state/main').get();
-    const body=snap&&snap.exists?snap.data():null;
-    let local=null; try{ local=JSON.parse(localStorage.getItem('dro.v2')||'null'); }catch(_){}
-    if(body&&(!local||(body.updatedAt||0)>(local.updatedAt||0))) adopt(body);
-    setSave('ok','Saved');
-    unsub=DB.doc('state/main').onSnapshot(s=>{
-      if(!s.exists) return;
-      const b=s.data();
-      if(!b||b.client===CLIENT) return;           // our own write echoing back
-      if((b.updatedAt||0)<=lastPush) return;
-      adopt(b);
-    },()=>{});
-  }catch(_){ setSave('local','On device'); }
 }
 
 /* =====================================================================
@@ -1915,7 +1918,6 @@ function bootstrap(){
     DEMO=true;
     renderFoot(); render();
   }
-  setView('pick');
   initCaps();
 }
 bootstrap();
