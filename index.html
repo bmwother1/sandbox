@@ -1184,6 +1184,19 @@ function runEngine(D){
   if(!scored.length) scored = build(true,false);
   if(!scored.length) scored = build(false,false);
 
+  /* You cannot field an empty slot. An unfilled starter is valued at waiver
+     level, so once the remaining candidates at that position project below
+     waiver the engine rationally never fills it — and you arrive at week 1
+     a man short. When the picks left only just cover what is still required,
+     restrict the board to those positions. */
+  const stillNeeded=[];
+  POSES.forEach(pos=>{ for(let i=c[pos]; i<S.slots[pos]; i++) stillNeeded.push(pos); });
+  const picksLeftForMe = D.myPicks.length;
+  if(stillNeeded.length && picksLeftForMe <= stillNeeded.length){
+    const urgent = scored.filter(x=>stillNeeded.includes(x.p.pos));
+    if(urgent.length) scored = urgent;
+  }
+
   const shortlist=[]; const seen=new Set();
   for(const s of scored){ if(shortlist.length>=10) break; shortlist.push(s); seen.add(s.p.id); }
   for(const pos of POSES){
