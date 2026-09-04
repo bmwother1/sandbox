@@ -471,6 +471,16 @@ dialog::backdrop{background:rgba(8,16,18,.62)}
       </div>
       <p class="note" id="impMsg" style="margin:9px 0 0"></p>
 
+      <div class="slbl">Practice</div>
+      <p class="note" style="margin:0 0 9px">Play out a whole draft against simulated opponents using your
+        settings above. Every pick lands on the board, so you can look at the grid, your roster and the charts
+        exactly as they would be on the night. Clears any picks you have entered.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-gold" id="btnMock">Run a mock draft</button>
+        <button type="button" class="btn" id="btnMockClear">Clear the board</button>
+      </div>
+      <p class="note" id="mockMsg" style="margin:9px 0 0"></p>
+
       <div class="slbl">Save &amp; restore</div>
       <p class="note" id="saveNote" style="margin:0 0 9px"></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -833,6 +843,7 @@ let boardFilter = 'ALL';
 let engineOut = null;
 let engineToken = 0;
 let DEMO = false;
+let MOCK = false;
 
 function parseBoard(lines){
   const out=[];
@@ -1595,6 +1606,7 @@ function renderAlerts(D,E){
       A.unshift([worst[1]>=4?'crit':'warn','Bye',
         `<b>${worst[1]} of your starters</b> are on bye in week ${worst[0]}. Another from that week and you are forfeiting it.`]);
   }
+  if(MOCK) A.unshift(['warn','Mock',`This board is a <b>simulated draft</b>, not a real one. Open Setup and choose <b>Clear the board</b> before your draft starts.`]);
   if(DEMO) A.unshift(['warn','Sample',`These six picks are a sample so the engine has something to chew on. <b><a href="#" id="clearDemo" style="color:inherit">Clear the board</a></b> when your draft starts.`]);
   if(!A.length) A.push(['go','Clear','Nothing unusual on the board. The ranked list is the whole story.']);
   $('alerts').innerHTML=needsStrip(D)+A.map(([k,t,m])=>`<div class="alert ${k}"><span class="k">${t}</span><span>${m}</span></div>`).join('');
@@ -2156,6 +2168,58 @@ $('btnRestore').onclick=()=>{
   adopt(one); save();
   $('jsonMsg').innerHTML='<span style="color:var(--go)">Restored.</span>';
 };
+
+/* =====================================================================
+   16b. MOCK DRAFT — the same engine that advises you, playing your seat,
+   against opponents drawn from ADP and their own roster needs.
+   ===================================================================== */
+function runMockDraft(){
+  PICKS=[]; DEMO=false; MOCK=true;
+  const rnd=mulberry32((Date.now()^0x9E3779B9)>>>0);
+  const total=totalPicks();
+  let guard=0;
+  while(PICKS.length<total && guard++<4000){
+    const D=derive();
+    if(!D.avail.length) break;
+    if(D.isMyTurn){
+      WAIVER=waiverLevels();
+      const E=runEngine(D);
+      if(!E.results.length) break;
+      PICKS.push({id:E.results[0].p.id, team:D.onClock});
+    } else {
+      const a=D.avail.slice().sort((x,y)=>x.adp-y.adp);
+      const rl=S.rounds-Math.floor(D.cur/S.teams);
+      const i=oppPick(a, D.rosters[D.onClock], rl, rnd);
+      if(!a[i]) break;
+      PICKS.push({id:a[i].id, team:D.onClock});
+    }
+  }
+  save(); render();
+  const D=derive(); WAIVER=waiverLevels();
+  const mine=D.rosters[myIdx()];
+  const L=fillLineup(mine);
+  const pts=Math.round(L.slots.reduce((a,x)=>a+(x.player?x.player.proj:0),0));
+  const byWk={}; L.slots.forEach(x=>{ if(x.player&&x.player.bye) byWk[x.player.bye]=(byWk[x.player.bye]||0)+1; });
+  const worst=Math.max(0,...Object.values(byWk));
+  const counts=POSES.map(x=>x+mine.filter(y=>y.pos===x).length).join(' ');
+  return {picks:PICKS.length, total, pts, counts, worst,
+          open:L.slots.filter(x=>!x.player).length};
+}
+$('btnMock').onclick=()=>{
+  $('mockMsg').innerHTML='<span class="working">drafting…</span>';
+  setTimeout(()=>{
+    try{
+      const r=runMockDraft();
+      $('mockMsg').innerHTML=`<span style="color:var(--go)">Done — ${r.picks} of ${r.total} picks.
+        Your starters project <b>${r.pts}</b> pts · roster ${esc(r.counts)} ·
+        ${r.open?r.open+' slot(s) open':'every starting slot filled'} ·
+        worst bye week has ${r.worst} starter${r.worst===1?'':'s'} out.
+        Close this and look at the Board, My team and Charts.</span>`;
+    }catch(err){ $('mockMsg').innerHTML='<span style="color:var(--crit)">Mock draft failed: '+esc(err.message)+'</span>'; }
+  },20);
+};
+$('btnMockClear').onclick=()=>{ PICKS=[]; MOCK=false; DEMO=false; save(); render();
+  $('mockMsg').innerHTML='<span style="color:var(--go)">Board cleared — ready for a real draft.</span>'; };
 
 /* =====================================================================
    17. BOOT
