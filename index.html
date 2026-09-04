@@ -296,6 +296,16 @@ button{cursor:pointer}
 .tempo i.none{background:var(--surface-3)}
 .tempo i.me{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--gold-solid)}
 
+/* ===== glossary ===== */
+.gloss details{border-bottom:1px solid var(--line);padding:2px 0}
+.gloss details:last-child{border-bottom:0}
+.gloss summary{cursor:pointer;padding:9px 2px;font-size:13.5px;list-style:none;color:var(--muted)}
+.gloss summary::-webkit-details-marker{display:none}
+.gloss summary:before{content:'+';display:inline-block;width:15px;color:var(--gold);font-weight:700}
+.gloss details[open] summary:before{content:'−'}
+.gloss summary b{color:var(--text);font-weight:700}
+.gloss p{margin:0 0 11px 15px;font-size:13px;color:var(--muted);line-height:1.5;max-width:62ch}
+
 /* ===== dialog ===== */
 dialog{border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);color:var(--text);
   padding:0;max-width:min(680px,95vw);width:100%;box-shadow:var(--shadow)}
@@ -419,6 +429,41 @@ dialog::backdrop{background:rgba(8,16,18,.62)}
       </section>
     </div>
   </div>
+
+      <section class="panel view" data-v="charts">
+        <div class="phd"><h3>What the numbers mean</h3><span class="hint">tap a row to expand</span></div>
+        <div class="pbd gloss">
+          <details><summary><b>Adds now</b> — the number that decides the pick</summary>
+            <p>Points this player adds to your <em>starting lineup</em>, not his raw total. A player at a
+            position you already have covered only counts as bench, so his "adds" collapses. This is why
+            the app will pass on a higher-scoring player for one who fills a hole.</p></details>
+          <details><summary><b>Cost of waiting</b> — why not take him next round</summary>
+            <p>His value minus what the best player at his position is expected to add by the time your next
+            pick comes round. Big number: he will be gone and the drop-off behind him is steep. Dash: you can
+            comfortably wait.</p></details>
+          <details><summary><b>VORP</b> — why a 400-point QB can rank below a 300-point WR</summary>
+            <p>Value Over Replacement. If the QB you could get in round 10 scores 300, an elite QB scoring 400
+            is only worth +100. If the replacement WR scores 190, a 300-point WR is worth +110. VORP is measured
+            against the <em>unfilled starting slots left across the whole league</em> and is recalculated on
+            every pick, so it rises on its own when the room drains a position.</p></details>
+          <details><summary><b>Lasts to 2.06</b> — will he still be there</summary>
+            <p>Chance he survives to your next pick, from his ADP and how far away that pick is. Under 25% shows
+            red: take him now or lose him. Over 60% green: you have a genuine choice.</p></details>
+          <details><summary><b>Tier</b> and <b>cliff</b> — where the talent drops</summary>
+            <p>Tiers come from real gaps in the projection curve, not round numbers. A cliff warning means only
+            one or two players remain before a step down, and roughly that many will go before you pick again.</p></details>
+          <details><summary><b>Run</b> — the room is draining a position</summary>
+            <p>Four or more of the last eight picks at one position. It means that position is going faster than
+            ADP expects, so the players you were planning to wait on will not be there.</p></details>
+          <details><summary><b>Bye</b> — the thing that quietly loses you a week</summary>
+            <p>Byes are shown everywhere and scored. Stacking several starters into one bye week means fielding
+            an incomplete lineup that week. A warning fires at three; the engine discounts picks that would make
+            it worse, most heavily when you would have nobody startable at that position.</p></details>
+          <details><summary><b>Scarcity clock</b> — <span class="mono">26 · −5.9</span></summary>
+            <p>26 startable players left at that position, and about 5.9 of them get taken before your next pick.
+            The red section of the bar is what you are about to lose by waiting.</p></details>
+        </div>
+      </section>
 
   <p class="foot" id="foot"></p>
 </div>
