@@ -58,6 +58,22 @@ control is a real tap target.
 The categorical palette is validated for colour-vision deficiency and contrast
 in both themes (OKLab ΔE on all pairs, ≥3:1 against the surface).
 
+## Sending someone a copy
+
+The app is a single self-contained file. To hand it to someone who cannot open
+the hosted version:
+
+```sh
+cp index.html "Draft Room Oracle.html"
+```
+
+They save it and open it in any browser — no install, no account, and it runs
+with no network at all (verified with all HTTP blocked: the engine, the board,
+the charts and the glossary all work; the only external reference is a Google
+Fonts stylesheet, which is non-blocking and degrades to system fonts).
+
+Copies are snapshots and do not update, so regenerate one after any change.
+
 ## Saving
 
 Three layers, so a draft is never lost:

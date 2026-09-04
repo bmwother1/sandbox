@@ -1,0 +1,5 @@
+# Shareable copies of the app are generated from index.html on demand
+# (see README) and are byte-identical to it. Keeping one committed would
+# leave a duplicate that silently goes stale whenever index.html changes.
+Draft Room Oracle.html
+*.local.html
