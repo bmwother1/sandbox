@@ -497,6 +497,21 @@ if(!document.querySelector('meta[name="viewport"]')){
 }
 const POSES = ['QB','RB','WR','TE','K','DST'];
 
+/* 2026 bye weeks. Verified against a live league screenshot: PIT 9, PHI 10,
+   NE 11, MIA 6, NYJ 13, DAL 14, KC 5, ATL 11, GB 11, JAX 7 all matched. */
+const BYE = {
+  CAR:5, KC:5,
+  CIN:6, DET:6, MIN:6, MIA:6,
+  BUF:7, WAS:7, LAC:7, JAX:7,
+  HOU:8, SF:8, NYG:8, NO:8,
+  PIT:9, TEN:9,
+  CHI:10, DEN:10, PHI:10, TB:10,
+  ATL:11, CLE:11, GB:11, LAR:11, NE:11, SEA:11,
+  BAL:13, IND:13, LV:13, NYJ:13,
+  ARI:14, DAL:14
+};
+
+
 /* ---------------------------------------------------------------------
    1. BASELINE BOARD — Sept 2026 consensus order.
    Format: Name | POS | TEAM | projection multiplier | note
@@ -623,6 +638,8 @@ Alec Pierce|WR|IND
 Troy Franklin|WR|DEN
 Jalen McMillan|WR|TB
 Adonai Mitchell|WR|IND
+Travis Kelce|TE|KC
+Rico Dowdle|RB|PIT
 Evan Engram|TE|DEN
 Mark Andrews|TE|BAL
 David Njoku|TE|CLE
@@ -823,6 +840,7 @@ function rankPool(){
     let v = base + (S.ppr - 1)*rec;
     if(p.pos==='TE') v += S.tePrem*rec;
     if(p.pos==='QB') v += (S.passTD - 4)*interp(PTD_CURVE.QB, p.posRank);
+    if(p.bye==null && p.team && BYE[p.team]!=null) p.bye=BYE[p.team];
     p.rec = rec;
     p.projRaw = Math.max(4, v);
     p.proj = Math.max(4, v*(p.adj||1));
@@ -1187,12 +1205,34 @@ function runEngine(D){
          + (flexOK ? (S.slots.FLEX||0)+(S.slots.SFLEX||0) : 0);
   };
 
+  /* Bye and stacking risk. A roster can be full of good players and still lose
+     a week outright: five starters sharing one bye is a forfeit, and three
+     players from one NFL team concentrates it. Applied as a discount, not a
+     veto — real value still wins, but ties break toward a survivable schedule. */
+  const mine=D.rosters[myIdx()];
+  const byeRisk = p => {
+    if(!p.bye) return 1;
+    const samePos = mine.filter(x=>x.pos===p.pos && x.bye===p.bye).length;
+    const sameWeek= mine.filter(x=>x.bye===p.bye).length;
+    const sameTeam= p.team ? mine.filter(x=>x.team===p.team).length : 0;
+    let f=1;
+    // would leave you with no startable player at this position that week
+    if(samePos >= Math.max(1,S.slots[p.pos])) f *= 0.70;
+    // pile-up across the whole lineup
+    f *= Math.max(0.55, 1 - 0.10*Math.max(0, sameWeek-1));
+    // one NFL team's worth of your roster
+    f *= sameTeam>=3 ? 0.80 : sameTeam>=2 ? 0.92 : 1;
+    return f;
+  };
+
   const results = shortlist.map(s=>{
     const pos=s.p.pos;
     const wait = s.marg - (margLater[pos]||0);
     let score = s.marg + 0.9*Math.max(0,wait) + 0.15*s.vorp;
     if(pos!=='K' && pos!=='DST' && c[pos] >= capacityOf(pos)) score *= (0.15+0.65*lateness);
-    return {...s,
+    const bye = byeRisk(s.p);
+    score *= bye;
+    return {...s, byeFactor:bye,
             wait,
             score,
             surv: survives(s.p, D.myNext2, D.cur),
@@ -1286,6 +1326,12 @@ function explain(r, D, E){
     else if(r.surv>0.62) bits.push(`he is <b>${pct(r.surv)}</b> to still be there, so this is a real choice rather than a panic`);
   }
 
+  // 3b. bye clash
+  if(r.byeFactor!=null && r.byeFactor<0.95){
+    const n=D.rosters[myIdx()].filter(x=>x.bye===r.p.bye).length;
+    bits.push(`note he is on bye in week <b>${r.p.bye}</b> alongside <b>${n}</b> of your squad`);
+  }
+
   // 4. what waiting actually costs
   if(r.wait>10) bits.push(`waiting for the next ${pos} costs you about <b>${Math.round(r.wait)}</b> lineup points`);
   const gap = r.p.adp - (D.cur+1);
@@ -1364,7 +1410,7 @@ function renderCall(D,E){
         <div class="cname">${esc(r.p.name)}</div>
         <div class="cmeta">${chip(r.p)}<span class="team">${esc(r.p.team)}</span>
           <span class="tag">${r.p.pos}${r.p.posRank} · tier ${r.tier}</span>
-          <span class="tag">ADP ${r.p.adp.toFixed(0)}</span>
+          <span class="tag${r.byeFactor<0.95?' warn':''}">bye ${r.p.bye||'—'}</span>
           ${r.p.note?`<span class="tag warn">${esc(r.p.note)}</span>`:''}</div>
         <div class="cwhy">${explain(r,D,E)}</div>
       </div>
@@ -1428,7 +1474,7 @@ function renderBoard(D,E){
       const t=E.tiers[p.pos].map.get(p.id);
       if(t!=null&&t!==lastTier){
         const n=E.tiers[p.pos].sizes[t-1];
-        rows+=`<tr class="tierrule"><td colspan="6"><div>Tier ${t} · ${n} left
+        rows+=`<tr class="tierrule"><td colspan="7"><div>Tier ${t} · ${n} left
           ${(n<=2&&t>1)?`<span class="cliff">— cliff below this</span>`:''}</div></td></tr>`;
         lastTier=t;
       }
@@ -1438,13 +1484,14 @@ function renderBoard(D,E){
       <td><div class="pname">${chip(p)}<span class="n">${esc(p.name)}</span>
         <span class="team">${esc(p.team)}</span>${p.note?`<span class="tag warn">${esc(p.note)}</span>`:''}</div></td>
       <td class="num" style="color:var(--faint)">${p.pos}${p.posRank}</td>
+      <td class="num" style="color:var(--faint)">${p.bye||'—'}</td>
       <td class="num">${p.adp.toFixed(0)}</td>
       <td class="num">${Math.round(p.proj)}</td>
       <td class="num" style="color:${v>0?'var(--text)':'var(--faint)'}">${v>0?'+':''}${v.toFixed(0)}</td>
       <td style="white-space:nowrap"><button class="take" data-draft="${p.id}">take</button>
         <button class="gone" data-gone="${p.id}">gone</button></td></tr>`;
   });
-  $('boardTbl').innerHTML=`<thead><tr><th>Player</th><th>Rank</th><th>ADP</th><th>Proj</th><th>VORP</th><th></th></tr></thead><tbody>${rows}</tbody>`;
+  $('boardTbl').innerHTML=`<thead><tr><th>Player</th><th>Rank</th><th>Bye</th><th>ADP</th><th>Proj</th><th>VORP</th><th></th></tr></thead><tbody>${rows}</tbody>`;
 }
 
 function renderRoster(D){
@@ -1455,7 +1502,7 @@ function renderRoster(D){
   let h=slots.map(s=>`<div class="slotrow${s.player?'':' empty'}">
       <span class="slotlbl">${s.key}</span>
       <span class="fill">${s.player?esc(s.player.name):'open'}</span>
-      <span class="pts">${s.player?Math.round(s.player.proj):''}</span></div>`).join('');
+      <span class="pts">${s.player?('b'+(s.player.bye||'-')+' · '+Math.round(s.player.proj)):''}</span></div>`).join('');
   if(bench.length) h+=`<div class="divider"></div>`+bench.map(p=>
     `<div class="slotrow"><span class="slotlbl">BN</span>
       <span class="fill" style="font-weight:500;color:var(--muted)">${esc(p.name)}</span>
@@ -1500,6 +1547,17 @@ function renderAlerts(D,E){
     const roundsLeft=S.rounds-Math.floor(D.cur/S.teams);
     if(roundsLeft<=2&&(c.K<S.slots.K||c.DST<S.slots.DST))
       A.push(['warn','Fill',`${roundsLeft} round${roundsLeft>1?'s':''} left and you still owe ${[c.K<S.slots.K?'a K':null,c.DST<S.slots.DST?'a D/ST':null].filter(Boolean).join(' and ')}.`]);
+  }
+  {
+    const mine=D.rosters[myIdx()];
+    const {slots}=fillLineup(mine);
+    const starters=slots.filter(x=>x.player).map(x=>x.player);
+    const byWk={};
+    starters.forEach(x=>{ if(x.bye) byWk[x.bye]=(byWk[x.bye]||0)+1; });
+    const worst=Object.entries(byWk).sort((a,b)=>b[1]-a[1])[0];
+    if(worst && worst[1]>=3)
+      A.unshift([worst[1]>=4?'crit':'warn','Bye',
+        `<b>${worst[1]} of your starters</b> are on bye in week ${worst[0]}. Another from that week and you are forfeiting it.`]);
   }
   if(DEMO) A.unshift(['warn','Sample',`These six picks are a sample so the engine has something to chew on. <b><a href="#" id="clearDemo" style="color:inherit">Clear the board</a></b> when your draft starts.`]);
   if(!A.length) A.push(['go','Clear','Nothing unusual on the board. The ranked list is the whole story.']);
